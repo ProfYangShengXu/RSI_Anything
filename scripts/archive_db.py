@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS items(
   when_to_use TEXT NOT NULL,
   how TEXT NOT NULL,
   component TEXT, symptom_sig TEXT,
-  scope TEXT CHECK(scope IN ('infra','local','global')) DEFAULT 'local',
+  scope TEXT CHECK(scope IN ('invariant','domain','model-specific')) DEFAULT 'domain',
   status TEXT NOT NULL DEFAULT 'hypothesis'
     CHECK(status IN ('hypothesis','validated','refuted','merged','retired')),
   merged_into TEXT,
@@ -118,10 +118,23 @@ def cmd_add(a):
     if c.execute("SELECT 1 FROM items WHERE id=?", (a.id,)).fetchone():
         print(f"[拒绝] id 已存在：{a.id}", file=sys.stderr)
         return 1
+    evs = []
+    for ev in (a.evidence or []):
+        ev = (ev or "").strip()
+        run_id, _, note = ev.partition(":")
+        if not run_id or not note.strip():
+            print(f"[拒绝] 证据必须写成 run_id:说明（收到 {ev!r}）", file=sys.stderr)
+            return 1
+        evs.append((run_id, note.strip()))
+
     status = a.status
-    if not a.evidence:
+    if not evs:
         status = "hypothesis"
         print("[提示] 没给证据 → status 强制为 hypothesis（P5 入库四关）", file=sys.stderr)
+    elif status == "validated" and a.reconstructed:
+        status = "hypothesis"
+        print("[提示] 只有重建面证据（reconstructed）→ 强制 hypothesis："
+              "补写的东西只能提假设，不能进已验证档", file=sys.stderr)
 
     sim = find_similar(c, a.title, a.sig)
     if sim:
@@ -138,24 +151,25 @@ def cmd_add(a):
                  VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
               (a.id, a.kind, a.title, a.when, a.how, a.component, a.sig,
                a.scope, status, ts, ts))
-    for ev in a.evidence or []:
-        run_id, _, note = ev.partition(":")
+    for run_id, note in evs:
         c.execute("INSERT INTO evidence(item_id,run_id,observed,source_kind,note) VALUES(?,?,?,?,?)",
-                  (a.id, run_id, 0 if a.reconstructed else 1, a.source, note or ev))
-    log(c, "add", a.id, {"kind": a.kind, "sig": a.sig, "n_ev": len(a.evidence or [])})
+                  (a.id, run_id, 0 if a.reconstructed else 1, a.source, note))
+    log(c, "add", a.id, {"kind": a.kind, "sig": a.sig, "n_ev": len(evs)})
     c.commit()
-    print(f"ok {a.id} kind={a.kind} status={status} 证据 {len(a.evidence or [])} 条")
+    print(f"ok {a.id} kind={a.kind} status={status} 证据 {len(evs)} 条")
 
 
 def cmd_search(a):
     c = conn(a.db)
-    q = "%" + "%".join(a.words) + "%"
+    where, params = ["status NOT IN ('merged','retired')"], []
+    for w in a.words:
+        where.append("(title LIKE ? OR when_to_use LIKE ? OR how LIKE ?)")
+        params += [f"%{w}%"] * 3
     rows = c.execute("""SELECT id,kind,status,component,symptom_sig,title,when_to_use
                         FROM items
-                        WHERE status NOT IN ('merged','retired')
-                          AND (title LIKE ? OR when_to_use LIKE ? OR how LIKE ?)
+                        WHERE """ + " AND ".join(where) + """
                         ORDER BY CASE status WHEN 'validated' THEN 0 ELSE 1 END, id""",
-                     (q, q, q)).fetchall()
+                     params).fetchall()
     if not rows:
         print("没有匹配")
         return 0
@@ -173,6 +187,12 @@ def cmd_merge(a):
     dst = c.execute("SELECT * FROM items WHERE id=?", (a.into,)).fetchone()
     if not src or not dst:
         print("[失败] from 或 into 不存在", file=sys.stderr)
+        return 1
+    if a.from_id == a.into:
+        print("[拒绝] 不能把条目并进自己", file=sys.stderr)
+        return 1
+    if dst["status"] == "merged":
+        print(f"[拒绝] 目标是已合并条目（→{dst['merged_into']}），请并到最终条目", file=sys.stderr)
         return 1
     c.execute("UPDATE items SET status='merged', merged_into=?, updated_at=? WHERE id=?",
               (a.into, now(), a.from_id))
@@ -201,9 +221,12 @@ def cmd_stats(a):
     for r in c.execute("SELECT kind, COUNT(*) n FROM items GROUP BY kind ORDER BY n DESC"):
         print(f"  {r['kind']:<11} {r['n']}")
     print("\n连续三败的方向（P5.6：除非带新证据，不许再提）：")
-    rows = c.execute("""SELECT i.id, i.title, COUNT(*) n, SUM(CASE WHEN t.outcome='pos' THEN 1 ELSE 0 END) w
-                        FROM trials t JOIN items i ON i.id=t.item_id
-                        GROUP BY i.id HAVING n>=3 AND w=0""").fetchall()
+    rows = []
+    for it in c.execute("SELECT id,title FROM items WHERE status NOT IN ('merged','retired')").fetchall():
+        last = c.execute("SELECT outcome FROM trials WHERE item_id=? ORDER BY id DESC LIMIT 3",
+                         (it["id"],)).fetchall()
+        if len(last) == 3 and all(r["outcome"] == "neg" for r in last):
+            rows.append({"id": it["id"], "title": it["title"], "n": 3})
     if not rows:
         print("  （无）")
     for r in rows:
@@ -225,6 +248,10 @@ def cmd_verify(a):
     for r in c.execute("""SELECT id FROM items WHERE status='validated'
                           AND NOT EXISTS(SELECT 1 FROM evidence e WHERE e.item_id=items.id)"""):
         bad.append(f"{r['id']} 标了 validated 却没有证据")
+    for r in c.execute("""SELECT i.id FROM items i WHERE i.status='validated'
+                          AND NOT EXISTS(SELECT 1 FROM evidence e
+                                         WHERE e.item_id=i.id AND e.observed=1)"""):
+        bad.append(f"{r['id']} 标了 validated 但只有重建面证据（observed=0）")
     for r in c.execute("""SELECT e.id FROM evidence e LEFT JOIN items i ON i.id=e.item_id
                           WHERE i.id IS NULL"""):
         bad.append(f"evidence#{r['id']} 指向不存在的条目")
@@ -271,7 +298,7 @@ def main():
     p.add_argument("--how", required=True)
     p.add_argument("--component")
     p.add_argument("--sig")
-    p.add_argument("--scope", default="local", choices=["infra", "local", "global"])
+    p.add_argument("--scope", default="domain", choices=["invariant", "domain", "model-specific"])
     p.add_argument("--status", default="hypothesis",
                    choices=["hypothesis", "validated", "refuted"])
     p.add_argument("--evidence", nargs="*", help="run_id:note，可多条")

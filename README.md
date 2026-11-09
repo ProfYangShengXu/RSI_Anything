@@ -86,7 +86,7 @@ python scripts/check_trace.py $RUN/observe/rebuilt.jsonl
 python scripts/verify_state.py $RUN
 ```
 
-The four scripts use only the standard library.
+All scripts use only the standard library.
 
 ## Worked example
 

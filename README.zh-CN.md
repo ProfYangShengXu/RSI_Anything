@@ -86,7 +86,7 @@ python scripts/check_trace.py $RUN/observe/rebuilt.jsonl
 python scripts/verify_state.py $RUN
 ```
 
-四个脚本只用标准库。
+所有脚本只用标准库。
 
 ## 一个真实案例
 

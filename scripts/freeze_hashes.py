@@ -29,15 +29,19 @@ def sha256_file(p: Path) -> str:
     return h.hexdigest()
 
 
-def collect(paths):
-    rows = {}
+def collect(paths, strict=True):
+    """返回 (rows, errors)。strict=True 时任何问题都进 errors（调用方据此判红）。"""
+    rows, errors = {}, []
     for raw in paths:
         p = Path(raw).resolve()
         if p.is_file():
-            rows[p.name] = sha256_file(p)
+            key = p.name
+            if key in rows:
+                errors.append(f"同名文件只记一个会漏：{key}（用目录或改名）")
+            rows[key] = sha256_file(p)
             continue
         if not p.is_dir():
-            print(f"[warn] 不存在，跳过：{p}", file=sys.stderr)
+            errors.append(f"路径不存在：{p}")
             continue
         for root, dirs, files in os.walk(p):
             dirs[:] = [d for d in dirs if d not in SKIP]
@@ -46,8 +50,8 @@ def collect(paths):
                 try:
                     rows[str(fp.relative_to(p.parent))] = sha256_file(fp)
                 except OSError as e:
-                    print(f"[warn] 读不了 {fp}: {e}", file=sys.stderr)
-    return rows
+                    errors.append(f"读不了 {fp}: {e}")
+    return rows, errors
 
 
 def main():
@@ -74,7 +78,14 @@ def main():
             return 2
         bad = 0
         for name, info in cats.items():
-            cur = collect(info["paths"])
+            cur, errs = collect(info["paths"])
+            for e in errs:
+                print(f"  ! {name}: {e}")
+            bad += len(errs)
+            if info.get("files", 0) == 0 or not cur:
+                print(f"{name}: FAIL 冻结时就是 0 个文件 —— 这不是一次冻结")
+                bad += 1
+                continue
             stored = {}
             f = hdir / f"{name}.sha256"
             if f.exists():
@@ -97,12 +108,23 @@ def main():
         print("VERIFY: " + ("PASS" if bad == 0 else f"FAIL ({bad} 处差异)"))
         return 0 if bad == 0 else 1
 
+    missing = [n for n, v in (("code", a.code), ("data", a.data), ("judge", a.judge)) if not v]
+    if missing:
+        print(f"[fail] 缺类别：{', '.join(missing)} —— 代码/数据/判据三样都要冻结，"
+              f"少一样后面就不知道是什么变了", file=sys.stderr)
+        return 2
+
     hdir.mkdir(parents=True, exist_ok=True)
     cats = {}
+    problems = 0
     for name, paths in (("code", a.code), ("data", a.data), ("judge", a.judge)):
-        if not paths:
-            continue
-        rows = collect(paths)
+        rows, errs = collect(paths)
+        for e in errs:
+            print(f"[fail] {name}: {e}", file=sys.stderr)
+        problems += len(errs)
+        if not rows:
+            print(f"[fail] {name}: 0 个文件 —— 空快照不算冻结", file=sys.stderr)
+            problems += 1
         (hdir / f"{name}.sha256").write_text(
             "".join(f"{h}  {rel}\n" for rel, h in sorted(rows.items())), encoding="utf-8")
         cats[name] = {"paths": [str(Path(p).resolve()) for p in paths], "files": len(rows)}
@@ -112,6 +134,9 @@ def main():
         "frozen_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "categories": cats,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
+    if problems:
+        print(f"[fail] {problems} 处问题，快照不可信", file=sys.stderr)
+        return 2
     print(f"G1 hashes: {len(cats)} 类（校验：--verify）")
     return 0
 

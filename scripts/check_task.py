@@ -33,35 +33,56 @@ from pathlib import Path
 DISCORDANCE_DEFAULT = 0.4
 ALPHA_DEFAULT = 0.05
 POWER_DEFAULT = 0.8
+EXACT_MAX = 800   # 超过这个题数改用正态近似（误差 <1%，精确算法太慢）
 
 
 # ---------- 统计：配对二值，精确 McNemar ----------
 
 def _k_crit(nd, alpha):
-    """n_d 个不一致对里，min(b,c) 不超过多少时判显著（精确二项双尾）。"""
+    """n_d 个不一致对里，min(b,c) 不超过多少时判显著（精确二项双尾）。
+
+    用对数算概率，避免 2**nd 在 n≥512 时溢出。
+    """
     if nd == 0:
         return -1
+    ln2 = nd * math.log(2.0)
     tail = 0.0
-    total = 2.0 ** nd
     for k in range(nd + 1):
-        tail += math.comb(nd, k) / total
+        lnp = (math.lgamma(nd + 1) - math.lgamma(k + 1) - math.lgamma(nd - k + 1) - ln2)
+        tail += math.exp(lnp)
         if 2.0 * tail > alpha:
             return k - 1
     return nd
 
 
+def _pmf(n, p):
+    """二项 pmf，对数空间算，n 大也不溢出。"""
+    if p <= 0:
+        return [1.0] + [0.0] * n
+    if p >= 1:
+        return [0.0] * n + [1.0]
+    lp, lq = math.log(p), math.log1p(-p)
+    lg = math.lgamma
+    lg_n = lg(n + 1)
+    return [math.exp(lg_n - lg(k + 1) - lg(n - k + 1) + k * lp + (n - k) * lq)
+            for k in range(n + 1)]
+
+
 def power(n, delta, q=DISCORDANCE_DEFAULT, alpha=ALPHA_DEFAULT):
-    """精确功效：b~Bin(n, q/2+delta/2), c~Bin(n, q/2-delta/2) 独立，取 McNemar 精确检验。
+    """配对二值的功效。
 
     delta = 上升比例 - 下降比例（占全部题），q = 任一方向翻转的比例。
+    n ≤ EXACT_MAX 用精确 McNemar；更大的 n 用正态近似（差 <1%，精确算太慢）。
     """
     pu = q / 2 + delta / 2
     pd = q / 2 - delta / 2
     if pd < 0 or pu > 1 or n <= 0:
         return 0.0
-    # 二项 pmf
-    pb = [math.comb(n, b) * pu ** b * (1 - pu) ** (n - b) for b in range(n + 1)]
-    pc = [math.comb(n, c) * pd ** c * (1 - pd) ** (n - c) for c in range(n + 1)]
+    if n > EXACT_MAX:
+        b, c = n * pu, n * pd
+        z = (abs(b - c) - 1) / math.sqrt(b + c)
+        return 0.5 * (1 + math.erf((z - 1.96) / math.sqrt(2)))
+    pb, pc = _pmf(n, pu), _pmf(n, pd)
     kc = [_k_crit(nd, alpha) for nd in range(2 * n + 1)]
     total = 0.0
     for b in range(n + 1):
@@ -89,13 +110,20 @@ def mde(n, q=DISCORDANCE_DEFAULT, alpha=ALPHA_DEFAULT, target=POWER_DEFAULT):
     return hi
 
 
-def required_n(delta, q=DISCORDANCE_DEFAULT, alpha=ALPHA_DEFAULT, target=POWER_DEFAULT):
-    n = 2
-    while n <= 5000:
-        if power(n, delta, q, alpha) >= target:
-            return n
-        n += 1
-    return None
+def required_n(delta, q=DISCORDANCE_DEFAULT, alpha=ALPHA_DEFAULT, target=POWER_DEFAULT,
+               cap=4000):
+    if delta <= 0:
+        return None
+    if power(cap, delta, q, alpha) < target:
+        return None
+    lo, hi = 2, cap
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if power(mid, delta, q, alpha) >= target:
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
 
 
 # ---------- 子命令 ----------
@@ -113,7 +141,7 @@ def cmd_mde(args):
         print("\n各题数下能测出的最小 Δ：")
         for n, m in rows:
             print(f"  n={n:<4} " + (f"Δ ≥ {m:.2f}（{m*100:.0f}pp）" if m else "到不了 80% 功效（题太少）"))
-        ok = bool(need) and need <= args.n if args.n else True
+        ok = True if not args.n else (bool(need) and need <= min(args.n))
         return 0 if ok else 1
 
     print(f"翻转率 q={q:.2f}  α={alpha}  power={target}")
@@ -159,7 +187,9 @@ def cmd_calibrate(args):
     print(f"{'task':<28} {'p_hat':>6}  {'n':>3}  判定")
     for tid, ss in sorted(per_task.items()):
         p = sum(ss) / len(ss)
-        if p > args.easy:
+        if len(ss) < 5:
+            verdict, bucket = f"样本不足（{len(ss)} 次，要 5 次）", too_hard
+        elif p > args.easy:
             verdict, bucket = "太简单（对 RSI 无信息）", too_easy
         elif p < args.hard:
             verdict, bucket = "太低（先分清是难还是题面歧义）", too_hard
@@ -183,6 +213,9 @@ def cmd_calibrate(args):
     return 0
 
 
+CANON_FAKES = ("empty", "copy_prompt", "keyword_only", "shaped_but_wrong", "superset_lucky")
+
+
 def cmd_grader(args):
     s = json.loads(Path(args.scores).read_text(encoding="utf-8"))
     for k in ("orig", "ref", "junk"):
@@ -192,6 +225,12 @@ def cmd_grader(args):
     fakes = s.get("fakes") or {}
     orig, ref, junk = float(s["orig"]), float(s["ref"]), float(s["junk"])
     fails = []
+    for name, v in [("orig", orig), ("ref", ref), ("junk", junk)] + [(k, float(v)) for k, v in fakes.items()]:
+        if not (0.0 <= v <= 1.0):
+            fails.append(f"{name}={v} 不在 [0,1] —— 分数口径不对（不是百分制）")
+    missing = [c for c in CANON_FAKES if c not in fakes]
+    if missing:
+        fails.append("对抗集缺这五类：" + "、".join(missing))
 
     if ref < max([orig, junk] + list(map(float, fakes.values()))):
         fails.append(f"参考不是最高分：ref={ref:.3f}")
@@ -209,6 +248,13 @@ def cmd_grader(args):
         if float(worst[1]) > allowed:
             fails.append(f"假答案骗过头：{worst[0]}={float(worst[1]):.3f} > {allowed:.3f}")
 
+    worst = max(fakes.items(), key=lambda kv: float(kv[1])) if fakes else (None, 0.0)
+    if args.json:
+        print(json.dumps({"pass": not fails, "orig": orig, "ref": ref, "junk": junk,
+                          "fakes": {k: float(v) for k, v in fakes.items()},
+                          "separation": sep, "worst": worst[0], "fails": fails},
+                         ensure_ascii=False))
+        return 0 if not fails else 1
     print(f"orig={orig:.3f}  ref={ref:.3f}  junk={junk:.3f}  区分度={sep:.3f}")
     for f in fails:
         print(f"  ✗ {f}")
@@ -234,7 +280,39 @@ def cmd_all(args):
         rc = max(rc, 2)
     if (d / "scores.json").exists():
         args.scores = str(d / "scores.json")
-        rc = max(rc, cmd_grader(args))
+        raw = Path(args.scores).read_text(encoding="utf-8")
+        s = json.loads(raw)
+        fails = []
+        try:
+            orig, ref, junk = float(s["orig"]), float(s["ref"]), float(s["junk"])
+        except (KeyError, TypeError, ValueError):
+            print("[输入错误] scores.json 缺 orig/ref/junk")
+            return 2
+        fakes = {k: float(v) for k, v in (s.get("fakes") or {}).items()}
+        if not all(0.0 <= v <= 1.0 for v in [orig, ref, junk] + list(fakes.values())):
+            fails.append("有分数不在 [0,1]（不是百分制）")
+        miss = [c for c in CANON_FAKES if c not in fakes]
+        if miss:
+            fails.append("对抗集缺：" + "、".join(miss))
+        sep = ref - orig
+        if ref < max([orig, junk] + list(fakes.values())):
+            fails.append("参考不是最高分")
+        if junk > 0.1 * ref:
+            fails.append("垃圾分过高")
+        if sep < 0.1:
+            fails.append("区分度不足")
+        if fakes and max(fakes.values()) > ref - 0.5 * sep:
+            fails.append("假答案骗过头")
+        out = {"pass": not fails, "orig": orig, "ref": ref, "junk": junk,
+               "fakes": fakes, "separation": sep, "fails": fails}
+        vd = d / "verify"
+        vd.mkdir(parents=True, exist_ok=True)
+        (vd / "judge_check.json").write_text(
+            json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"判据体检：{'pass' if not fails else 'FAIL'} -> verify/judge_check.json")
+        for f in fails:
+            print(f"  ✗ {f}")
+        rc = max(rc, 0 if not fails else 1)
     else:
         print("[缺件] scores.json —— 判分器没法验")
         rc = max(rc, 2)
@@ -265,6 +343,7 @@ def main():
 
     g = sub.add_parser("grader", help="判分器：三档 + 对抗集")
     g.add_argument("--scores", required=True)
+    g.add_argument("--json", action="store_true")
     g.set_defaults(func=cmd_grader)
 
     a = sub.add_parser("all", help="按任务目录跑全部体检")

@@ -46,7 +46,7 @@ The rule that matters: **state lives on disk, not in the conversation.** A sessi
 
 | Gate | Passes when |
 |---|---|
-| G1 freeze | prereg has H0, budget, judge, sample size; the judge scores 0.6 on the original output, 1.0 on the reference solution, 0.0 on garbage; the task text passed three checks (can it be fooled, is it stable across repeats, is the expected answer unique) |
+| G1 freeze | prereg has H0, budget, judge, sample size; the judge passes four checks — calibration (reference scores highest, garbage ≤ 0.1x reference, reference beats the original by at least 0.1), an adversarial set of at least five fake answers each scored separately (the best fake must trail the reference by at least half the reference-original gap), sensitivity (a known-good change must move the judge by at least half that gap), and stability (same output three times, and shuffled order, within 0.02); the task text is unique and reachable, and whoever audits the judge did not write it |
 | G2 evidence | `check_trace.py` passes: required fields, monotonic `seq`, at least one `model/request`, and every `tool/call` paired with a `tool/result` |
 | G3 attribute | every finding names a component, a locator, and a granularity; every candidate has a probe; at most one candidate is applied |
 | G4 verify | same start, same budget, same judge (judge hash unchanged), one variable changed, conclusions stated at the strength the sample size allows |

@@ -41,7 +41,7 @@ runs/<YYYYMMDD-HHMM>-<target>/
 
 | 门 | 阶段 | 过关条件 |
 |---|---|---|
-| **G1 冻结** | P1 任务 | `prereg.md` 四项齐（H0/预算/判据/样本量与聚合）+ 判据三档自证（原版≈0.6 / 参考解 1.0 / 垃圾 0.0）+ 题面体检三检 |
+| **G1 冻结** | P1 任务 | `prereg.md` 四项齐（H0/预算/判据/样本量与聚合）+ **判据体检四件套**：标定（ref=max、junk≤0.1·ref、ref−orig≥0.1）、对抗集（≥5 类假答案，每类单独报分，ref−fake_max ≥ 0.5·(ref−orig)）、敏感度（≥0.5·(ref−orig)）、鲁棒性（同产物 3 次差≤0.02、换序/批量差≤0.02、judge hash 冻结）+ 题面三检（唯一/可达/体检者≠作者） |
 | **G2 观测** | P2 现场 | `check_trace.py` 通过：字段齐、seq 单调、`model/request` 存在、未配对调用为 0 或已解释 |
 | **G3 归因** | P3 翻译 | 每条 finding 有 `component/locator/granularity` + 证据指针 + 来源档；候选 ≤2 且只落地 1 条；**没有探针的候选不许落地** |
 | **G4 验证** | P4 执行验证 | 三条同（起点/预算/评测壳）+ 单变量 + 判据 hash 未变 + 结论按样本量分级 + 成本带分母 |
@@ -116,7 +116,7 @@ python scripts/verify_state.py runs/<id>
 ## 参考文件
 
 ```
-references/01-freeze.md        预注册四项 + 判据三档自证 + 题面体检三检
+references/01-freeze.md        预注册四项 + 判据体检四件套 + 题面三检
 references/02-observe.md       事件契约、check_trace 判据、重建面纪律
 references/03-attribute.md     三出口、粒度三字段、来源三档、探针
 references/04-verify.md        三条同、样本量分级、成本口径、迁移三轴

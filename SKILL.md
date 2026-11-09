@@ -48,6 +48,27 @@ runs/<YYYYMMDD-HHMM>-<target>/
 
 ---
 
+## 出题：先算，再写
+
+`scripts/check_task.py` 把「这题能不能用来做 RSI」变成三个可算的判据：
+
+```bash
+python scripts/check_task.py mde --n 30              # 这题数能测出多大的 Δ
+python scripts/check_task.py calibrate --runs runs.jsonl --delta 0.08
+python scripts/check_task.py grader --scores scores.json
+python scripts/check_task.py all --task-dir tasks/0001 --delta 0.08
+```
+
+```
+MDE(n=30)=32pp, n=60=23pp, n=100=18pp, n=200=13pp   (q=0.4, α=.05, power=.8)
+预期 Δ < 2×MDE → 这题别写；写完也测不出来
+外部题同标准：只挑题、调预算、包判据；过不了就换题，不放松判据
+```
+
+规格见 `templates/task-spec.md`（三条准入 + 六条可信 + 五件交付）。
+
+---
+
 ## 五道门（二值，不过不进下一阶段）
 
 | 门 | 阶段 | 过关条件 |

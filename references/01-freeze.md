@@ -86,10 +86,15 @@ s_ref - s_fake_max ≥ 0.5 × (s_ref - s_orig)
 ## 冻结 hash
 
 ```bash
+# 跑前：冻结
 python scripts/freeze_hashes.py runs/<id> --code <repo> --judge <judge.py> --data <tasks/>
+
+# 跑后（或任何需要“变了就作废”的时刻）：重算并比对
+python scripts/freeze_hashes.py runs/<id> --verify
 ```
 
-跑前跑后各算一次，变了就作废。
+`--verify` 会逐文件重算，报 added / removed / changed，有差异则 exit 1。
+**不要靠“再冻结一次”来比对** —— 那只会覆盖旧值，现场只剩新 hash。
 
 ## 预算的两个常见坑
 

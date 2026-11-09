@@ -85,7 +85,13 @@ def main():
                 problems.append(f"line {i}: {msg}")
         rows.append(r)
 
-    seqs = [r.get("seq") for r in rows if isinstance(r.get("seq"), int)]
+    seqs = []
+    for r in rows:
+        v = r.get("seq")
+        if isinstance(v, bool) or not isinstance(v, int):
+            problems.append(f"seq 不是整数：{v!r}（字符串/浮点一律拒）")
+        else:
+            seqs.append(v)
     for prev, cur in zip(seqs, seqs[1:]):
         if cur <= prev:
             problems.append(f"seq 不递增：{prev} -> {cur}")
@@ -123,7 +129,7 @@ def main():
     if hard_fail or soft_fail:
         if soft_fail:
             print(f"[fail] {len(unpaired)} 次调用没有回执。补不齐就只能当重建面用（结论上限=假设），"
-                  f"或加 --allow-unpaired 显式放行")
+                  f"或加 --allow-unpaired 显式放行（★ 放行后必须把原因写进 STATE.md 的「未决问题」）")
         print("G2: FAIL")
         return 1
 

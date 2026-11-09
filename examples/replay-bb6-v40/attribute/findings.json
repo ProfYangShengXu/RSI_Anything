@@ -1,0 +1,49 @@
+{
+  "run": "20261109-bb6-v40",
+  "evidence_level": "reconstructed",
+  "note": "全部证据来自重建面（历史 trace，无 tool/result），按 skill 规定结论上限=假设；F3 的代码侧事实需读源确认",
+  "findings": [
+    {
+      "id": "F1",
+      "symptom": "同一路径被反复重写，24/38 次调用围绕同一个交付物",
+      "component": "契约/数据管线",
+      "locator": "contract/parser.py: output 路径规范化",
+      "granularity": "fine",
+      "evidence": [
+        "observe/rebuilt.jsonl seq=1 payload.last_content.output=/app/program.py",
+        "system prompt: WORKSPACE PATH 段要求相对路径（见 prereg 引用原文）",
+        "rebuilt.jsonl: 24/38 次 tool/call 的 args 含 program.py"
+      ],
+      "source_tier": "A",
+      "source_detail": "出处：v33 已记录 10 次 WorkspaceError（同一根因）；适用条件：交付物路径由契约给出且执行体按 workspace 相对解析；反例：若契约与 system 都写绝对路径则不会出现该循环",
+      "exit": "壳的缺陷"
+    },
+    {
+      "id": "F2",
+      "symptom": "同一份内容用 shell 重定向与 files_write 两条路反复试",
+      "component": "工具",
+      "locator": "shell_run 写重定向 + files_write 并存",
+      "granularity": "fine",
+      "evidence": [
+        "rebuilt.jsonl: 写文件类调用 15/38（files_write=5，其余为 heredoc/printf/echo/tee）"
+      ],
+      "source_tier": "A",
+      "source_detail": "出处：bb6-contract-authoring 铁律 + 本 trace；适用条件：多行文件且工具面同时提供写文件工具与 shell；反例：单行小文件用 shell 重定向不会触发",
+      "exit": "壳的缺陷"
+    },
+    {
+      "id": "F3",
+      "symptom": "写完之后反复 pwd/ls/cat 反查，无法确认落点",
+      "component": "工具",
+      "locator": "files_write 回执（缺 path_abs / bytes / sha256）",
+      "granularity": "fine",
+      "evidence": [
+        "rebuilt.jsonl: 反查类调用（pwd/ls/cat/wc）= 9 次",
+        "代码侧：files_write 返回值无 sha256（读源确认，非 trace 可证）"
+      ],
+      "source_tier": "B",
+      "source_detail": "B：本轮 v40 现场 + v36 同类行为；A 档支撑：ACI 认为接口不回传结果会削弱自纠（2405.15793）",
+      "exit": "壳的缺陷"
+    }
+  ]
+}

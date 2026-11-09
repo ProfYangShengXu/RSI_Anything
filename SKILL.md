@@ -1,0 +1,142 @@
+---
+name: rsi-anything
+description: Use when 要对可改代码的 agent/harness 做迭代调优（RSI 改进端）。五道门、磁盘状态、可恢复。
+metadata:
+  trigger: agent调优, 改进端, RSI, 迭代调优, 提升agent分数, 修harness, 调壳, 复盘失败, 经验库, 改进循环
+---
+
+# RSI_Anything —— 改进端
+
+**这个 skill 让 agent 当一个“改进端”**：看现场 → 归因 → 提改动 → 验证 → 归档。
+被改进端必须**可读、可写、可加日志**；不能改代码的系统不接（那只能做结果级对比，叫评测，不叫调优）。
+
+---
+
+## 铁律：不靠记忆，靠磁盘
+
+每次执行都在 `runs/<id>/` 留一套可恢复状态。
+**判断这个 skill 有没有做对的唯一标准**：把 `STATE.md` 和目录交给一个完全不知情的会话，它不问一句就能接着干。
+
+---
+
+## 目录（每个 run 一份）
+
+```
+runs/<YYYYMMDD-HHMM>-<target>/
+  STATE.md                 唯一入口：阶段 / 门记录 / 未决 / 下一步
+  prereg.md                H0、预算、判据、样本量、聚合口径
+  hashes/{code,data,judge}.sha256
+  observe/events.jsonl     观测面（被改进端产出）
+  observe/rebuilt.jsonl    重建面（历史数据；source=reconstructed）
+  attribute/findings.json  归因列表
+  changes/CU-001.md        改动单（含撤销三件套）
+  verify/readout.md        读数与结论强度
+  archive/experience.jsonl 经验条目
+  logs/
+```
+
+---
+
+## 五道门（二值，不过不进下一阶段）
+
+| 门 | 阶段 | 过关条件 |
+|---|---|---|
+| **G1 冻结** | P1 任务 | `prereg.md` 四项齐（H0/预算/判据/样本量与聚合）+ 判据三档自证（原版≈0.6 / 参考解 1.0 / 垃圾 0.0）+ 题面体检三检 |
+| **G2 观测** | P2 现场 | `check_trace.py` 通过：字段齐、seq 单调、`model/request` 存在、未配对调用为 0 或已解释 |
+| **G3 归因** | P3 翻译 | 每条 finding 有 `component/locator/granularity` + 证据指针 + 来源档；候选 ≤2 且只落地 1 条；**没有探针的候选不许落地** |
+| **G4 验证** | P4 执行验证 | 三条同（起点/预算/评测壳）+ 单变量 + 判据 hash 未变 + 结论按样本量分级 + 成本带分母 |
+| **G5 归档** | P5 归档 | 入库四关全过（体检/收益/成本/迁移）+ 签名闭集 + scope 有依据 + 带版本与验证时间 |
+
+**过门就往 STATE.md 追加一行**（脚本能解析的格式）：
+
+```
+GATE G2 pass files=observe/events.jsonl
+```
+
+---
+
+## 恢复协议（上下文丢了照这个接）
+
+```bash
+python scripts/verify_state.py runs/<id>
+```
+
+```
+① 读 STATE.md
+② 校验 hashes 与门记录、产物是否一致
+③ 不一致以产物为准（产物是事实，STATE 是备注）
+④ 从第一个未过门的阶段继续，已过的门不重做
+⑤ 产物缺失但 STATE 说过了 → 该门作废，重做
+```
+
+---
+
+## 反模式（先读这一节，比流程重要）
+
+```
+□ 只报分数不报成本、不报分母
+□ 单次通过当结论（n<50 就写“显著提升”）
+□ 改了判据/题集/聚合口径还说“提升”
+□ 归因写不出组件名，只有“模型不够聪明”
+□ 撤销声明只写“改回去”，没有快照与自检
+□ 一次改两个变量
+□ 候选没有探针就落地
+□ 拿重建面（reconstructed）当证据下结论
+□ 没跑留出集就写 scope: invariant
+□ 把“我要求不合理”当成“模型能力不行”（先查源够不够）
+```
+
+---
+
+## 快速开始
+
+```bash
+# 1 建 run
+mkdir -p runs/$(date +%Y%m%d-%H%M)-<target>/{hashes,observe,attribute,changes,verify,archive,logs}
+cp templates/STATE.md runs/<id>/STATE.md
+cp templates/prereg.md runs/<id>/prereg.md
+
+# 2 冻结
+python scripts/freeze_hashes.py runs/<id> --code <repo> --judge <judge.py> --data <tasks/>
+
+# 3 观测（自己产出事件流，或从历史 trace 导入）
+python scripts/import_trace.py <trace.jsonl> -o runs/<id>/observe/rebuilt.jsonl --reconstructed
+python scripts/check_trace.py runs/<id>/observe/rebuilt.jsonl
+
+# 4 归因 → 改动单
+cp templates/change-unit.md runs/<id>/changes/CU-001.md
+cp templates/readout.md runs/<id>/verify/readout.md
+
+# 5 收尾自检
+python scripts/verify_state.py runs/<id>
+```
+
+---
+
+## 参考文件
+
+```
+references/01-freeze.md        预注册四项 + 判据三档自证 + 题面体检三检
+references/02-observe.md       事件契约、check_trace 判据、重建面纪律
+references/03-attribute.md     三出口、粒度三字段、来源三档、探针
+references/04-verify.md        三条同、样本量分级、成本口径、迁移三轴
+references/05-archive.md       入库四关、签名闭集、scope、复核淘汰
+```
+
+---
+
+## 外部先验（判据的出处，不是装饰）
+
+| 判据 | 出处 |
+|---|---|
+| 评测即实验、先算样本量 | 2411.00640 |
+| < 几百条别用正态近似 | 2503.01747 |
+| 定位粒度本身是变量 | 2604.00167 |
+| 无外部反馈时自纠退化 | 2310.01798 |
+| 允许弃权、但别过度弃权 | 2611.06158 / 2402.15610 |
+| 三段式：定位→修复→验证 + 成本口径 | 2407.01489 Agentless |
+| 接口要给反馈（ACI） | 2405.15793 |
+| 留出集选择 | 2606.28374 |
+| 判据单一化会引来作弊 | 2605.21384 SpecBench |
+| 审计本身也有失败模式 | 2607.02586 |
+| 审计链要如实回答实际状态 | 2609.00406 |

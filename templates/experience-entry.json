@@ -1,0 +1,16 @@
+{
+  "signature": {
+    "category": "回执缺失",
+    "trigger": "多轮反思且工具返回不含失败原因",
+    "metric": "同一目标重复请求轮数",
+    "expected": "<=2",
+    "actual": "6"
+  },
+  "diagnosis": "state 不回显上一轮回执",
+  "fix": "把回执与错误码写回 state",
+  "scope": "domain",
+  "gate": {"preflight": true, "benefit": true, "cost": true, "transfer": false},
+  "evidence": ["verify/readout.md"],
+  "last_verified": "2026-11-09",
+  "applies_to": {"model": "<model>", "tool_surface": "<surface>"}
+}

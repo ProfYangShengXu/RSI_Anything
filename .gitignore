@@ -1,0 +1,19 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# runs are per-experiment state, not source
+runs/
+!examples/**/runs/
+
+# secrets
+.env
+.env.*
+!.env.example
+*secret*
+*credential*
+
+# os
+.DS_Store
+Thumbs.db

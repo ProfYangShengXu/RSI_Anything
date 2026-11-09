@@ -42,7 +42,8 @@ runs/<YYYYMMDD-HHMM>-<target>/
   attribute/findings.json  归因列表
   changes/CU-001.md        改动单（含撤销三件套）
   verify/readout.md        读数与结论强度
-  archive/experience.jsonl 经验条目
+  archive/experience.db    SQLite 经验库：items / evidence / trials / events
+  archive/experience.jsonl 导出副本（archive_db.py export，给人读）
   logs/
 ```
 
@@ -66,6 +67,22 @@ MDE(n=30)=32pp, n=60=23pp, n=100=18pp, n=200=13pp   (q=0.4, α=.05, power=.8)
 ```
 
 规格见 `templates/task-spec.md`（三条准入 + 六条可信 + 五件交付）。
+
+---
+
+## 归档：用库，别用手写 JSONL
+
+```bash
+python scripts/archive_db.py add --db archive/experience.db --id F1 --kind pitfall \
+  --title "契约写绝对路径会和相对路径规则打架" --when "契约同时给落点与相对规则" \
+  --how "统一相对路径，绝对路径只出现在回执" --sig path-conflict --evidence "v40:trace 76 行"
+python scripts/archive_db.py search --db archive/experience.db 回执 落点
+python scripts/archive_db.py trial  --db archive/experience.db --item F1 --run r12 --outcome neg
+python scripts/archive_db.py stats  --db archive/experience.db      # 连续三败的方向会浮出来
+python scripts/archive_db.py verify --db archive/experience.db      # 无证据条目 / 断链
+```
+
+三条硬约束：**没证据只能是 hypothesis**；**相似条目先拦下来判 新增/合并/替换**；**合并是软删 + 留痕**。
 
 ---
 

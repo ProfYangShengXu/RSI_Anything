@@ -41,9 +41,9 @@ runs/<YYYYMMDD-HHMM>-<target>/
 
 | 门 | 阶段 | 过关条件 |
 |---|---|---|
-| **G1 冻结** | P1 任务 | `prereg.md` 四项齐（H0/预算/判据/样本量与聚合）+ **判据体检四件套**：标定（ref=max、junk≤0.1·ref、ref−orig≥0.1）、对抗集（≥5 类假答案，每类单独报分，ref−fake_max ≥ 0.5·(ref−orig)）、敏感度（≥0.5·(ref−orig)）、鲁棒性（同产物 3 次差≤0.02、换序/批量差≤0.02、judge hash 冻结）+ 题面三检（唯一/可达/体检者≠作者） |
+| **G1 冻结** | P1 任务 | `prereg.md` **五项**齐（H0 / 预算 / 判据 / 样本量 / 聚合口径，无未填占位符）+ **判据体检四件套**：标定（ref 最高、junk ≤ 0.1·ref、ref−orig ≥ 0.1）、对抗集（≥5 类假答案逐类报分，ref−fake_max ≥ 0.5·(ref−orig)）、敏感度（已知有效改动让判据动 ≥ 0.5·(ref−orig)）、鲁棒性（同产物 3 次差 ≤0.02、换序/批量差 ≤0.02、judge hash 冻结）+ 题面三检（唯一/可达/体检者≠作者） |
 | **G2 观测** | P2 现场 | `check_trace.py` 通过：字段齐、seq 单调、`model/request` 存在、未配对调用为 0 或已解释 |
-| **G3 归因** | P3 翻译 | 每条 finding 有 `component/locator/granularity` + 证据指针 + 来源档；候选 ≤2 且只落地 1 条；**没有探针的候选不许落地** |
+| **G3 归因** | P3 翻译 | 每条 finding 有 `component/locator/granularity/evidence` + 来源档；候选**不超过两个**（两个的来源是 Harness² 的 invariant / domain 两类候选，不是随手定的数）；只落地一个；**没有探针的候选不许落地** |
 | **G4 验证** | P4 执行验证 | 三条同（起点/预算/评测壳）+ 单变量 + 判据 hash 未变 + 结论按样本量分级 + 成本带分母 |
 | **G5 归档** | P5 归档 | 入库四关全过（体检/收益/成本/迁移）+ 签名闭集 + scope 有依据 + 带版本与验证时间 |
 
@@ -63,7 +63,8 @@ python scripts/verify_state.py runs/<id>
 
 ```
 ① 读 STATE.md
-② 校验 hashes 与门记录、产物是否一致
+② verify_state 会：重算 hash 与冻结值比对、查 prereg 是否真的填了、
+   查 findings 有没有缺字段、并（在 STATE 写 ALLOW_UNPAIRED yes 时）跑 check_trace
 ③ 不一致以产物为准（产物是事实，STATE 是备注）
 ④ 从第一个未过门的阶段继续，已过的门不重做
 ⑤ 产物缺失但 STATE 说过了 → 该门作废，重做
@@ -91,25 +92,35 @@ python scripts/verify_state.py runs/<id>
 ## 快速开始
 
 ```bash
-# 1 建 run
-mkdir -p runs/$(date +%Y%m%d-%H%M)-<target>/{hashes,observe,attribute,changes,verify,archive,logs}
-cp templates/STATE.md runs/<id>/STATE.md
-cp templates/prereg.md runs/<id>/prereg.md
+# 所有命令都在 skill 根目录下执行（scripts/ 与 runs/ 是同级）
+cd <skill_dir>
 
-# 2 冻结
-python scripts/freeze_hashes.py runs/<id> --code <repo> --judge <judge.py> --data <tasks/>
+# 1 建 run（先定 RUN，后面一律用它，别再写 <id>）
+RUN=runs/$(date +%Y%m%d-%H%M)-mytarget
+mkdir -p $RUN/{hashes,observe,attribute,changes,verify,archive,logs}
+cp templates/STATE.md  $RUN/STATE.md
+cp templates/prereg.md $RUN/prereg.md
 
-# 3 观测（自己产出事件流，或从历史 trace 导入）
-python scripts/import_trace.py <trace.jsonl> -o runs/<id>/observe/rebuilt.jsonl --reconstructed
-python scripts/check_trace.py runs/<id>/observe/rebuilt.jsonl
+# 2 冻结（路径写绝对路径最稳）
+python scripts/freeze_hashes.py $RUN --code ./src --judge ./judge.py --data ./tasks
+
+# 3 观测
+#   有事件流直接用；只有历史 trace 时导入重建面
+python scripts/import_trace.py trace.jsonl -o $RUN/observe/rebuilt.jsonl --reconstructed
+#   ← 重建面没有 tool/result，check_trace 会判红。确认无法补时，在 STATE.md 加一行：
+#     ALLOW_UNPAIRED yes  (原因：历史 trace 无回执)
+python scripts/check_trace.py $RUN/observe/rebuilt.jsonl --allow-unpaired
 
 # 4 归因 → 改动单
-cp templates/change-unit.md runs/<id>/changes/CU-001.md
-cp templates/readout.md runs/<id>/verify/readout.md
+cp templates/findings.json $RUN/attribute/findings.json
+cp templates/change-unit.md $RUN/changes/CU-001.md
+cp templates/readout.md     $RUN/verify/readout.md
 
-# 5 收尾自检
-python scripts/verify_state.py runs/<id>
+# 5 收尾自检（会重算 hash、查 prereg 与 findings，不只看文件在不在）
+python scripts/verify_state.py $RUN
 ```
+
+**G2 认哪个文件**：优先 `observe/events.jsonl`（观测面）；只有 `rebuilt.jsonl` 时，必须在 STATE 里写 `ALLOW_UNPAIRED yes`，且结论降为假设。
 
 ---
 

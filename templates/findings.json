@@ -1,0 +1,17 @@
+{
+  "findings": [
+    {
+      "id": "F1",
+      "symptom": "一句话描述可观测的症状",
+      "component": "提示词 / 工具 / 记忆 / 编排 / 技能 / 判据 / 数据管线 / 契约",
+      "locator": "文件:行 或 字段名",
+      "granularity": "fine",
+      "evidence": ["observe/events.jsonl seq=12", "代码：path:line"],
+      "source_tier": "A",
+      "source_detail": "出处 + 适用条件 + 至少一条反例（A 档必填）",
+      "exit": "壳的缺陷",
+      "handled": true
+    }
+  ],
+  "note": "exit 只能取：壳的缺陷 / 能力与预算不足 / 不可归因；handled=false 表示已知但本轮不改"
+}

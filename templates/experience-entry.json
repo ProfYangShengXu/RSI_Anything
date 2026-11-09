@@ -9,8 +9,9 @@
   "diagnosis": "state 不回显上一轮回执",
   "fix": "把回执与错误码写回 state",
   "scope": "domain",
-  "gate": {"preflight": true, "benefit": true, "cost": true, "transfer": false},
+  "gate": {"preflight": true, "benefit": true, "cost": true, "transfer": true},
   "evidence": ["verify/readout.md"],
   "last_verified": "2026-11-09",
+  "reviewed_by": "<会话 id 或人名>",
   "applies_to": {"model": "<model>", "tool_surface": "<surface>"}
 }

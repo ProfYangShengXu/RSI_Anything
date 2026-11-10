@@ -17,3 +17,5 @@ runs/
 # os
 .DS_Store
 Thumbs.db
+references/targets/
+targets/

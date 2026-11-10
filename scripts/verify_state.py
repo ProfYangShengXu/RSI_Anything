@@ -260,7 +260,10 @@ def main():
                else ("先修 stale" if report["stale"] else "完成"))
         print(f"  下一步：{nxt}")
 
-    return 1 if report["stale"] else 0
+    not_ok = [g for g in ("G1", "G2", "G3", "G4", "G5") if report["gates"][g] != "ok"]
+    if not report["stale"] and not_ok:
+        print(f"  未过：{', '.join(not_ok)} —— 这套 run 还不能当结论用")
+    return 1 if (report["stale"] or not_ok) else 0
 
 
 if __name__ == "__main__":

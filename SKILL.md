@@ -86,6 +86,38 @@ python scripts/archive_db.py verify --db archive/experience.db      # 无证据�
 
 ---
 
+## 目标登记：接活前先读
+
+每个被改进端一份工作记忆，**状态优先于任何会话里的口头描述**：
+
+```
+references/targets/vh.md    入口 / 解释器 / 事件坑 / 上轮读数 / 未决   ⚠ G1 未过
+references/targets/bb6.md   仓库 / 工具层缺失 / 三根因 / 未决         ⚠ 只能接模型事件
+targets/*.json              跑一次的机器配置（run_target.py 用）
+```
+
+分工：**这里存“发生了什么”**；怎么写契约、怎么切块，去 `bb6-contract-authoring` /
+`bb6-split-and-budget`，别把教程塞进目标记忆。
+
+---
+
+## 接管一个目标：四行代码
+
+被改进端只要在四个位置调 `emitter.py`（模型请求/回复、工具前后、产物落盘），
+剩下的交给驱动：
+
+```bash
+python scripts/run_target.py targets/vh.json  --run-dir runs/20261110-vh-a
+python scripts/run_target.py targets/bb6.json --run-dir runs/20261110-bb6-a
+```
+
+驱动做四件事：冻结三类 hash → 执行 → `check_trace` → 打印「这批数据能支持什么结论」
+（n<19 直接告诉你做不了显著性）。细节见 `references/06-takeover.md`。
+
+**每个调用点接上，就有一项 `[实验]` 从「没上场」变成「有读数」。**
+
+---
+
 ## 五道门（二值，不过不进下一阶段）
 
 | 门 | 阶段 | 过关条件 |
